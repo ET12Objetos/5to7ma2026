@@ -199,6 +199,19 @@ using (MySqlConnection conn = new MySqlConnection(connectionString))
 
 ---
 
+## Crear el proyecto e instalar dependencias
+
+```bash
+# Crear la solucion y el proyecto de consola
+dotnet new console -n Proyecto -o src/Proyecto
+
+# Instalar el paquete NuGet MySql.Data
+cd src/Proyecto
+dotnet add package MySql.Data --version 9.7.0
+```
+
+---
+
 ## Ejecucion
 
 ```bash
