@@ -27,5 +27,10 @@ namespace EjemploHerencia
 
             return edad;
         }
+
+        public override void ImprimirNombre()
+        {
+            Console.WriteLine($"El nombre del alumno es: {Nombre}");
+        }
     }
 }

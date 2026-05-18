@@ -16,6 +16,19 @@ namespace EjemploHerencia
             this.Email = Email;
         }
 
-        public void InformarNombre() => Console.WriteLine(Nombre);
+        //Método concreto
+        public void InformarNombre()
+        {
+            Console.WriteLine(Nombre);
+        }
+
+        //Método abstracto
+        public abstract void ImprimirNombre();
+
+        //Método virtual
+        public virtual void ImprimirEmail()
+        {
+            Console.WriteLine($"Email registrado: {Email}");
+        }
     }
 }

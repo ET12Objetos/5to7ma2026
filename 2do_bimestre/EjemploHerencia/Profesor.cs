@@ -5,7 +5,9 @@ using System.Threading.Tasks;
 
 namespace EjemploHerencia
 {
-    public class Profesor : Persona
+    //Clase "sealed" no permite que otra clase herede de la
+    //clase Profesor
+    public sealed class Profesor : Persona
     {
         public int Dni { get; set; }
 
@@ -13,6 +15,16 @@ namespace EjemploHerencia
             : base(Nombre, Email)
         {
             this.Dni = Dni;
+        }
+
+        public override void ImprimirNombre()
+        {
+            Console.WriteLine($"Prof.: {Nombre}");
+        }
+
+        public override void ImprimirEmail()
+        {
+            Console.WriteLine($"Email del profesor {Nombre}: {Email}");
         }
     }
 }
