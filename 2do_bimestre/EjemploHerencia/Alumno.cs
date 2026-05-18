@@ -7,14 +7,20 @@ namespace EjemploHerencia
 {
     public class Alumno : Persona
     {
-        public DateOnly FechaNaciemiento { get; set; }
+        public DateOnly FechaNacimiento { get; set; }
+
+        public Alumno(string Nombre, string Email, DateOnly FechaNacimiento)
+            : base(Nombre, Email)
+        {
+            this.FechaNacimiento = FechaNacimiento;
+        }
 
         public int Edad()
         {
             var hoy = DateOnly.FromDateTime(DateTime.Today);
-            var edad = hoy.Year - FechaNaciemiento.Year;
+            var edad = hoy.Year - FechaNacimiento.Year;
 
-            if (hoy < FechaNaciemiento.AddYears(edad))
+            if (hoy < FechaNacimiento.AddYears(edad))
             {
                 edad--;
             }

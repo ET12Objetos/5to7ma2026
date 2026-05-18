@@ -1,7 +1,11 @@
 ﻿using EjemploHerencia;
 
-Profesor profesor = new Profesor();     //bien
+Profesor profesor = new Profesor("Jose", "jose@mail.com", 1234);     //bien
 
-Alumno alumno = new Alumno();   //bien
+Alumno alumno = new Alumno("Juan", "juan@mail.com", new DateOnly(2023, 2, 4));   //bien
 
-Persona persona = new Persona();    //mal
+alumno.InformarNombre();
+
+profesor.InformarNombre();
+
+//Persona persona = new Persona();    //mal
