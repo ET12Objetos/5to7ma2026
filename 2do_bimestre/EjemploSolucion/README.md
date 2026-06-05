@@ -11,7 +11,7 @@ La idea principal del proyecto es separar responsabilidades: la capa de presenta
 
 ```text
 EjemploSolucion/
-+-- EjemploSolucion.sln
++-- EjemploSolucion.slnx
 +-- Aplicacion/
 |   +-- Aplicacion.csproj
 |   +-- Alumno.cs
@@ -40,21 +40,41 @@ Este tipo de proyecto genera un ejecutable. En este caso, contiene el archivo `P
 
 ## Creacion del archivo de solucion
 
-Para agrupar los proyectos bajo una misma solucion se creo un archivo `.sln`:
+Para agrupar los proyectos bajo una misma solucion se creo un archivo `.slnx`, que es el nuevo formato XML de archivos de solucion:
 
 ```bash
-dotnet new sln -n EjemploSolucion
+dotnet new sln -n EjemploSolucion --format slnx
 ```
 
-El archivo `EjemploSolucion.sln` permite administrar varios proyectos juntos desde Visual Studio, Visual Studio Code o la linea de comandos.
+El archivo `EjemploSolucion.slnx` permite administrar varios proyectos juntos desde Visual Studio, Visual Studio Code o la linea de comandos.
+
+A diferencia del formato clasico `.sln`, el formato `.slnx` es XML y resulta mas simple de leer. En este proyecto tiene una estructura similar a esta:
+
+```xml
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Aplicacion/Aplicacion.csproj" />
+  <Project Path="Presentacion/Presentacion.csproj" />
+</Solution>
+```
+
+Si ya existia un archivo `.sln` clasico, se puede generar el nuevo formato con:
+
+```bash
+dotnet sln migrate EjemploSolucion.sln
+```
 
 ## Agregar proyectos a la solucion
 
 Una vez creados los proyectos, se agregaron al archivo de solucion con estos comandos:
 
 ```bash
-dotnet sln EjemploSolucion.sln add Aplicacion/Aplicacion.csproj
-dotnet sln EjemploSolucion.sln add Presentacion/Presentacion.csproj
+dotnet sln EjemploSolucion.slnx add Aplicacion/Aplicacion.csproj
+dotnet sln EjemploSolucion.slnx add Presentacion/Presentacion.csproj
 ```
 
 Con esto, la solucion queda compuesta por los proyectos `Aplicacion` y `Presentacion`.
@@ -86,7 +106,7 @@ using Aplicacion;
 Para compilar toda la solucion:
 
 ```bash
-dotnet build EjemploSolucion.sln
+dotnet build EjemploSolucion.slnx
 ```
 
 Para ejecutar el proyecto de consola:
@@ -102,12 +122,12 @@ El programa crea una lista de alumnos y muestra sus datos por consola.
 Resumen de los comandos principales:
 
 ```bash
-dotnet new sln -n EjemploSolucion
+dotnet new sln -n EjemploSolucion --format slnx
 dotnet new classlib -n Aplicacion
 dotnet new console -n Presentacion
-dotnet sln EjemploSolucion.sln add Aplicacion/Aplicacion.csproj
-dotnet sln EjemploSolucion.sln add Presentacion/Presentacion.csproj
+dotnet sln EjemploSolucion.slnx add Aplicacion/Aplicacion.csproj
+dotnet sln EjemploSolucion.slnx add Presentacion/Presentacion.csproj
 dotnet add Presentacion/Presentacion.csproj reference Aplicacion/Aplicacion.csproj
-dotnet build EjemploSolucion.sln
+dotnet build EjemploSolucion.slnx
 dotnet run --project Presentacion/Presentacion.csproj
 ```
