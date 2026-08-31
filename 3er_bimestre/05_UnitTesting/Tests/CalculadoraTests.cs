@@ -4,47 +4,47 @@ namespace Tests;
 
 public class CalculadoraTests
 {
-    [Fact]
-    public void Test1()
+    Calculadora calculadora;
+
+    public CalculadoraTests()
     {
-        //Arrange
-        Calculadora calculadora = new Calculadora();
-
-        //Act
-        int resultado = calculadora.Sumar(4, 5);
-
-        //Assert
-        Assert.Equal(9, resultado);
+        //Inicializar mi prueba - Arrange
+        calculadora = new Calculadora();
     }
 
     [Fact]
-    public void Test2()
+    //Prueba Unitaria o Unit Test
+    public void Calculadora_Sumar_DebeRetornarUnValorCorrecto()
     {
-        //Arrange
-        Calculadora calculadora = new Calculadora();
+        //Hacer la prueba - Act
+        int resultado = calculadora.Sumar(6, 7);
 
-        //Act
-        int resultado = calculadora.Sumar(4, 5);
-
-        //Assert
-        Assert.NotEqual(10, resultado);
+        //Verificar el exito de la prueba - Assert
+        Assert.Equal(13, resultado);
     }
 
     [Fact]
-    public void Test3()
+    //Prueba Unitaria o Unit Test
+    public void Calculadora_Sumar_DebeRetornarUnValorIncorrecto()
     {
-        Calculadora calculadora = new Calculadora();
+        //Hacer la prueba - Act
+        int resultado = calculadora.Sumar(6, 7);
 
-        int resultado = calculadora.Dividir(6, 3);
-
-        Assert.Equal(2, resultado);
+        //Verificar el exito de la prueba - Assert
+        Assert.NotEqual(2, resultado);
     }
 
     [Fact]
-    public void Test4()
+    public void Calculadora_Dividir_DebeRetornarResultadoCorrecto()
     {
-        Calculadora calculadora = new Calculadora();
+        int resultado = calculadora.Dividir(15, 3);
 
-        Assert.Throws<DivideByZeroException>(() => calculadora.Dividir(6, 0));
+        Assert.Equal(5, resultado);
+    }
+
+    [Fact]
+    public void Calculadora_Dividir_DebeRetornarResultadoIncorrecto()
+    {
+        Assert.Throws<DivideByZeroException>(() => calculadora.Dividir(3, 0));
     }
 }

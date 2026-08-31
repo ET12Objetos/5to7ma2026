@@ -4,7 +4,7 @@ public class Calculadora
 {
     public int Sumar(int a, int b)
     {
-        return a + b;
+        return b + a;
     }
 
     public int Dividir(int a, int b)
