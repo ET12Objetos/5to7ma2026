@@ -1,6 +1,15 @@
+using Aplicacion.Contratos;
+using Aplicacion.Servicios;
+using Persistencia.Contratos;
+using Persistencia.Repositorios;
+using Presentacion.Endpoints;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
+
+builder.Services.AddTransient<IUsuarioRepositorio, UsuarioRepositorio>();
+builder.Services.AddTransient<IUsuarioServicio, UsuarioServicio>();
 
 var app = builder.Build();
 
@@ -20,6 +29,8 @@ app.MapGet("/bienvenida", () =>
 {
     return Results.Ok("Hola mundo!");
 });
+
+app.MapUsuarioEndpoints();
 
 app.Run();
 

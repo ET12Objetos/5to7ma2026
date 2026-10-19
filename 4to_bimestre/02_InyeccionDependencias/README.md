@@ -1,109 +1,145 @@
-# Cambios realizados en `Program.cs`
+﻿# UsuariosApp: inyección de dependencias
 
-`Presentacion/Program.cs` dejó de crear manualmente los repositorios, servicios y el menú. Ahora utiliza un contenedor de inyección de dependencias para registrar las implementaciones y construir automáticamente sus dependencias.
+API de ejemplo desarrollada con ASP.NET Core y .NET 10. La única entidad del proyecto es `Usuario`. Su endpoint, servicio y repositorio se organizan en tres capas, conectadas mediante interfaces e inyección de dependencias.
 
-## 1. Nuevos espacios de nombres
-
-Se agregaron los espacios de nombres necesarios para acceder a las interfaces de los repositorios y al contenedor de inyección de dependencias:
-
-```csharp
-using Aplicacion.Repositorios;
-using Microsoft.Extensions.DependencyInjection;
-```
-
-`Aplicacion.Repositorios` permite registrar cada repositorio mediante su interfaz. `Microsoft.Extensions.DependencyInjection` proporciona `ServiceCollection`, los métodos de registro y la resolución de servicios.
-
-## 2. Creación del contenedor
-
-Después de cargar la configuración y obtener la cadena de conexión, se crea una colección de servicios:
-
-```csharp
-var services = new ServiceCollection();
-```
-
-Esta colección contiene la información que el contenedor necesita para saber qué clase debe crear cuando se solicita una interfaz.
-
-## 3. Registro de la fábrica de conexiones
-
-La fábrica de conexiones se registra mediante su interfaz:
-
-```csharp
-services.AddSingleton<IDbConnectionFactory>(
-    _ => new MySqlConnectionFactory(connectionString));
-```
-
-Se utiliza `AddSingleton` porque una única instancia de la fábrica puede compartirse durante toda la ejecución. La fábrica conserva la cadena de conexión y crea una conexión nueva cada vez que un repositorio la solicita.
-
-## 4. Registro de los repositorios
-
-Cada interfaz de repositorio se relaciona con su implementación concreta:
-
-```csharp
-services.AddTransient<IUsuarioRepositorio, UsuarioRepositorio>();
-services.AddTransient<IRolRepositorio, RolRepositorio>();
-services.AddTransient<IPermisoRepositorio, PermisoRepositorio>();
-services.AddTransient<IRolPermisoRepositorio, RolPermisoRepositorio>();
-```
-
-Por ejemplo, cuando una clase solicita `IUsuarioRepositorio`, el contenedor crea un `UsuarioRepositorio` y le proporciona automáticamente el `IDbConnectionFactory` registrado.
-
-Se utiliza `AddTransient` porque estos repositorios no conservan estado y pueden crearse cuando son requeridos.
-
-## 5. Registro de los servicios
-
-Los servicios de la capa de aplicación también se registran mediante sus interfaces:
-
-```csharp
-services.AddTransient<IUsuarioServicio, UsuarioServicio>();
-services.AddTransient<IRolServicio, RolServicio>();
-services.AddTransient<IPermisoServicio, PermisoServicio>();
-services.AddTransient<IRolPermisoServicio, RolPermisoServicio>();
-```
-
-Al crear un servicio, el contenedor inspecciona su constructor y le inyecta el repositorio correspondiente. Por ejemplo, `UsuarioServicio` recibe automáticamente una implementación de `IUsuarioRepositorio`.
-
-## 6. Registro y resolución del menú
-
-El menú también forma parte del grafo de dependencias:
-
-```csharp
-services.AddTransient<ConsoleMenu>();
-```
-
-Después de completar los registros, se construye el proveedor de servicios y se solicita el menú:
-
-```csharp
-using var serviceProvider = services.BuildServiceProvider();
-var menu = serviceProvider.GetRequiredService<ConsoleMenu>();
-
-menu.Ejecutar();
-```
-
-`GetRequiredService<ConsoleMenu>()` crea el menú e inyecta sus cuatro servicios. Para construirlos, el contenedor crea a su vez los repositorios necesarios y les entrega la fábrica de conexiones.
-
-La declaración `using` asegura que el proveedor y las dependencias administradas por él sean liberados al terminar la aplicación.
-
-## 7. Código eliminado
-
-Ya no es necesario crear manualmente cada nivel de dependencias:
-
-```csharp
-var connectionFactory = new MySqlConnectionFactory(connectionString);
-var usuarioRepositorio = new UsuarioRepositorio(connectionFactory);
-var usuarioServicio = new UsuarioServicio(usuarioRepositorio);
-```
-
-Tampoco se construye `ConsoleMenu` pasando cada servicio de forma manual. Esa responsabilidad ahora pertenece al contenedor.
-
-## Flujo resultante
-
-Cuando se solicita `ConsoleMenu`, el contenedor completa automáticamente el siguiente flujo:
+## Estructura del proyecto
 
 ```text
-ConsoleMenu
-    -> Servicios
-        -> Repositorios
-            -> IDbConnectionFactory
+UsuariosApp.slnx
+├── Presentacion/
+│   ├── Endpoints/
+│   │   └── UsuarioEndpoints.cs
+│   └── Program.cs
+├── Aplicacion/
+│   ├── Contratos/
+│   │   └── IUsuarioServicio.cs
+│   └── Servicios/
+│       └── UsuarioServicio.cs
+└── Persistencia/
+    ├── Contratos/
+    │   └── IUsuarioRepositorio.cs
+    ├── Entidades/
+    │   └── Usuario.cs
+    └── Repositorios/
+        └── UsuarioRepositorio.cs
 ```
 
-De esta manera, `Program.cs` funciona como raíz de composición: carga la configuración, registra las relaciones entre interfaces e implementaciones, construye el contenedor y resuelve el objeto principal de la aplicación.
+### Presentación: endpoint de Usuario
+
+La capa `Presentacion` recibe las solicitudes HTTP y devuelve las respuestas de la API.
+
+- `Program.cs` configura la aplicación, registra las dependencias y habilita las rutas.
+- `Endpoints/UsuarioEndpoints.cs` agrupa las rutas de usuarios en el método de extensión `MapUsuarioEndpoints()`.
+- El endpoint recibe `IUsuarioServicio` mediante `[FromServices]` y utiliza `Results.Ok(...)` para devolver una respuesta HTTP 200.
+
+```csharp
+public static void MapUsuarioEndpoints(this IEndpointRouteBuilder app)
+{
+    app.MapGet("/usuario", ([FromServices] IUsuarioServicio usuarioServicio) =>
+    {
+        return Results.Ok(usuarioServicio.LeerUsuarios());
+    });
+}
+```
+
+El grupo de endpoints se incorpora en `Program.cs` con:
+
+```csharp
+app.MapUsuarioEndpoints();
+```
+
+### Aplicación: servicio de Usuario
+
+La capa `Aplicacion` contiene `UsuarioServicio`, que coordina la consulta de usuarios.
+
+- `Contratos/IUsuarioServicio.cs` define `LeerUsuarios()`, que devuelve `IReadOnlyList<Usuario>`.
+- `Servicios/UsuarioServicio.cs` implementa esa interfaz y recibe `IUsuarioRepositorio` por constructor.
+- Actualmente, `LeerUsuarios()` delega la consulta en `usuarioRepositorio.GetUsuarios()`.
+
+```csharp
+public class UsuarioServicio : IUsuarioServicio
+{
+    private readonly IUsuarioRepositorio usuarioRepositorio;
+
+    public UsuarioServicio(IUsuarioRepositorio usuarioRepositorio)
+    {
+        this.usuarioRepositorio = usuarioRepositorio;
+    }
+
+    public IReadOnlyList<Usuario> LeerUsuarios()
+    {
+        return usuarioRepositorio.GetUsuarios();
+    }
+}
+```
+
+### Persistencia: repositorio de Usuario
+
+La capa `Persistencia` contiene `UsuarioRepositorio` y la única entidad del proyecto, `Usuario`.
+
+- `Contratos/IUsuarioRepositorio.cs` define `GetUsuarios()`, que devuelve `IReadOnlyList<Usuario>`.
+- `Repositorios/UsuarioRepositorio.cs` implementa el contrato y devuelve una lista fija de tres usuarios: Juan, Martin y Leonardo.
+
+Aunque el proyecto referencia Dapper y MySqlConnector, el repositorio actual devuelve datos en memoria y no realiza consultas a una base de datos.
+
+### Entidad Usuario
+
+`Persistencia/Entidades/Usuario.cs` representa a cada usuario con estas propiedades:
+
+| Propiedad | Tipo | Descripción |
+| --- | --- | --- |
+| `Id` | `int` | Identificador del usuario. |
+| `Nombre` | `string` | Nombre del usuario. |
+| `Email` | `string` | Correo electrónico del usuario. |
+
+El repositorio y el servicio devuelven colecciones de esta misma entidad mediante `IReadOnlyList<Usuario>`.
+
+## Registro de dependencias
+
+`Presentacion/Program.cs` relaciona las interfaces con sus implementaciones antes de construir la aplicación:
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOpenApi();
+
+builder.Services.AddTransient<IUsuarioRepositorio, UsuarioRepositorio>();
+builder.Services.AddTransient<IUsuarioServicio, UsuarioServicio>();
+
+var app = builder.Build();
+```
+
+`AddTransient` crea una instancia nueva cada vez que el contenedor resuelve la dependencia. Al resolver `IUsuarioServicio`, el contenedor construye un `UsuarioServicio` e inyecta un `UsuarioRepositorio` en su constructor.
+
+Los endpoints se registran mediante el método de extensión; no necesitan un registro propio con `AddTransient`.
+
+## Flujo de una consulta
+
+```text
+GET /usuario
+    → UsuarioEndpoints
+    → IUsuarioServicio / UsuarioServicio.LeerUsuarios()
+    → IUsuarioRepositorio / UsuarioRepositorio.GetUsuarios()
+    → Lista de usuarios
+    → Respuesta HTTP 200 con JSON
+```
+
+El endpoint depende del contrato del servicio y el servicio depende del contrato del repositorio. El contenedor resuelve las implementaciones registradas en `Program.cs`.
+
+## Endpoint de Usuario
+
+| Método | Ruta | Ubicación | Respuesta |
+| --- | --- | --- | --- |
+| GET | `/usuario` | `Presentacion/Endpoints/UsuarioEndpoints.cs` | HTTP 200 con la lista de usuarios en JSON. |
+
+Ejemplo de respuesta de `GET /usuario`:
+
+```json
+[
+  { "id": 1, "nombre": "Juan", "email": "juan@mail.com" },
+  { "id": 2, "nombre": "Martin", "email": "martin@mail.com" },
+  { "id": 3, "nombre": "Leonardo", "email": "leonardo@mail.com" }
+]
+```
+
+En el entorno `Development`, también se habilitan el documento OpenAPI en `/openapi/v1.json` y la interfaz Swagger UI en `/swagger` para explorar y probar los endpoints.
