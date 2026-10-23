@@ -19,7 +19,6 @@ public class UsuarioServicio : IUsuarioServicio
         //conversion de Usuario DTO => Entidad Usuario
         Usuario usuario = new Usuario
         {
-            Id = Guid.NewGuid(),
             Nombre = usuarioDto.Nombre,
             Email = usuarioDto.Email
         };
