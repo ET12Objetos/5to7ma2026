@@ -26,7 +26,7 @@ public class UsuarioRepositorio : IUsuarioRepositorio
 
     public IReadOnlyList<Usuario> GetUsuarios()
     {
-        const string sql = "SELECT Id, Nombre, Email FROM Usuarios ORDER BY Nombre, Id;";
+        const string sql = "SELECT Id, Nombre, Email FROM Usuarios WHERE DeletedAt IS NULL ORDER BY Nombre, Id;";
 
         return conexion.Query<Usuario>(sql).AsList();
     }
@@ -44,8 +44,15 @@ public class UsuarioRepositorio : IUsuarioRepositorio
 
     public bool DeleteUsuario(Guid id)
     {
-        const string sql = "DELETE FROM Usuarios WHERE Id = @Id;";
+        //const string sql = "DELETE FROM Usuarios WHERE Id = @Id;";
+        DateTime deletedAt = DateTime.Now;
 
-        return conexion.Execute(sql, new { Id = id }) > 0;
+        const string sql = """
+            UPDATE Usuarios 
+            SET DeletedAt = @deletedAt 
+            WHERE Id = @Id;
+            """;
+
+        return conexion.Execute(sql, new { DeletedAt = deletedAt, Id = id }) > 0;
     }
 }
