@@ -1,6 +1,6 @@
 ﻿# UsuariosApp: Dapper y persistencia en MySQL
 
-API de ejemplo desarrollada con ASP.NET Core y .NET 10. Permite consultar y crear usuarios mediante GET y POST, con persistencia en MySQL mediante Dapper. Sus tres capas se conectan mediante interfaces e inyección de dependencias.
+API de ejemplo desarrollada con ASP.NET Core y .NET 10. Permite consultar, crear, actualizar y borrar usuarios mediante GET, POST, PUT y DELETE, con persistencia en MySQL mediante Dapper. El borrado es lógico (Soft Delete): conserva el registro en la base de datos y lo oculta de las consultas. Sus tres capas se conectan mediante interfaces e inyección de dependencias.
 
 ## Estructura del proyecto
 
@@ -35,8 +35,8 @@ API de ejemplo desarrollada con ASP.NET Core y .NET 10. Permite consultar y crea
 | Capa | Responsabilidad |
 | --- | --- |
 | `Presentacion` | Recibe solicitudes HTTP y devuelve respuestas. `Program.cs` configura la aplicación y `UsuarioEndpoints.cs` define las rutas. |
-| `Aplicacion` | Coordina las operaciones mediante `UsuarioServicio` y utiliza el contrato del repositorio para consultar y crear usuarios. |
-| `Persistencia` | Define la entidad `Usuario` y el repositorio que consulta y agrega usuarios en MySQL mediante Dapper. |
+| `Aplicacion` | Coordina la consulta, creación, actualización y borrado mediante `UsuarioServicio` y el contrato del repositorio. |
+| `Persistencia` | Define la entidad `Usuario` y el repositorio que consulta, agrega, actualiza y marca usuarios como borrados en MySQL mediante Dapper. |
 
 El endpoint depende de `IUsuarioServicio` y el servicio depende de `IUsuarioRepositorio`. El contenedor resuelve las implementaciones registradas en `Program.cs`.
 
@@ -75,15 +75,40 @@ public class UsuarioRepositorio : IUsuarioRepositorio
 
     public IReadOnlyList<Usuario> GetUsuarios()
     {
-        const string sql = "SELECT Id, Nombre, Email FROM Usuarios ORDER BY Nombre, Id;";
+        const string sql = "SELECT Id, Nombre, Email FROM Usuarios WHERE DeletedAt IS NULL ORDER BY Nombre, Id;";
 
         return conexion.Query<Usuario>(sql).AsList();
+    }
+
+    public bool UpdateUsuario(Usuario usuario)
+    {
+        const string sql = """
+            UPDATE Usuarios
+            SET Nombre = @Nombre, Email = @Email
+            WHERE Id = @Id;
+            """;
+
+        return conexion.Execute(sql, usuario) > 0;
+    }
+
+    public bool DeleteUsuario(Guid id)
+    {
+        DateTime deletedAt = DateTime.Now;
+
+        const string sql = """
+            UPDATE Usuarios
+            SET DeletedAt = @deletedAt
+            WHERE Id = @Id;
+            """;
+
+        return conexion.Execute(sql, new { DeletedAt = deletedAt, Id = id }) > 0;
     }
 }
 ```
 
-- `Execute(sql, usuario)` ejecuta el `INSERT`. Dapper toma los valores de las propiedades `Id`, `Nombre` y `Email` para los parámetros `@Id`, `@Nombre` y `@Email`, sin concatenarlos en el SQL.
-- `Query<Usuario>(sql)` ejecuta el `SELECT` y asigna las columnas a las propiedades de `Usuario`. `AsList()` materializa el resultado como una lista compatible con `IReadOnlyList<Usuario>`.
+- `Execute(sql, usuario)` ejecuta el `INSERT` o el `UPDATE`. Dapper toma los valores de las propiedades `Id`, `Nombre` y `Email` para los parámetros `@Id`, `@Nombre` y `@Email`, sin concatenarlos en el SQL.
+- `Query<Usuario>(sql)` ejecuta el `SELECT` y asigna las columnas a las propiedades de `Usuario`. El filtro `WHERE DeletedAt IS NULL` excluye los usuarios borrados. `AsList()` materializa el resultado como una lista compatible con `IReadOnlyList<Usuario>`.
+- En la actualización y el borrado, `Execute(...) > 0` indica si MySQL informó filas afectadas. El servicio utiliza ese resultado para que el endpoint responda con éxito o con HTTP 404.
 
 Las consultas son síncronas. Cuando recibe una conexión cerrada, Dapper la abre para ejecutar la operación y la cierra al terminar. La aplicación no crea tablas ni carga usuarios iniciales automáticamente.
 
@@ -104,11 +129,22 @@ CREATE TABLE IF NOT EXISTS Usuarios (
     Id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     Nombre VARCHAR(200) NOT NULL,
     Email VARCHAR(254) NOT NULL,
+    DeletedAt DATETIME NULL,
     PRIMARY KEY (Id)
 ) ENGINE=InnoDB;
 ```
 
-El script crea la base `usuarios_app` y la tabla `Usuarios` si no existen. La tabla comienza vacía; los usuarios se agregan mediante `POST /usuario`. El usuario de conexión debe tener permisos para consultar e insertar en esa tabla.
+El script crea la base `usuarios_app` y la tabla `Usuarios` si no existen. La tabla comienza vacía; los usuarios se agregan mediante `POST /usuario`. El usuario de conexión debe tener permisos `SELECT`, `INSERT` y `UPDATE` sobre esa tabla; el borrado lógico utiliza `UPDATE`.
+
+Si la tabla ya existía sin la columna `DeletedAt`, ejecutar una vez esta modificación desde un cliente de MySQL con permisos para alterar la tabla. `CREATE TABLE IF NOT EXISTS` no modifica una tabla existente:
+
+```sql
+USE usuarios_app;
+
+ALTER TABLE Usuarios ADD COLUMN DeletedAt DATETIME NULL;
+```
+
+Los registros existentes quedan con `DeletedAt = NULL`, por lo que siguen apareciendo en `GET /usuario`.
 
 ### Configurar appsettings.json
 
@@ -210,6 +246,26 @@ public static void MapUsuarioEndpoints(this IEndpointRouteBuilder app)
         var usuarioResponse = usuarioServicio.CrearUsuario(usuarioDto);
         return Results.Created($"/usuario/{usuarioResponse.Id}", usuarioResponse);
     });
+
+    app.MapPut("/usuario/{id:guid}", (Guid id, UsuarioRequestDto usuarioDto, [FromServices] IUsuarioServicio usuarioServicio) =>
+    {
+        var usuarioResponse = usuarioServicio.ActualizarUsuario(id, usuarioDto);
+
+        if (usuarioResponse is null)
+            return Results.NotFound();
+
+        return Results.Ok(usuarioResponse);
+    });
+
+    app.MapDelete("/usuario/{id:guid}", (Guid id, [FromServices] IUsuarioServicio usuarioServicio) =>
+    {
+        bool result = usuarioServicio.BorrarUsuario(id);
+
+        if (!result)
+            return Results.NotFound();
+
+        return Results.NoContent();
+    });
 }
 ```
 
@@ -223,19 +279,23 @@ Los endpoints no necesitan un registro propio en el contenedor de dependencias.
 
 | Método | Ruta | Entrada | Respuesta |
 | --- | --- | --- | --- |
-| GET | `/usuario` | Sin cuerpo. | HTTP 200 con una lista de usuarios en JSON. |
+| GET | `/usuario` | Sin cuerpo. | HTTP 200 con una lista de usuarios no borrados en JSON. |
 | POST | `/usuario` | JSON con `nombre` y `email`. | HTTP 201 con el usuario creado y el encabezado `Location`. |
+| PUT | `/usuario/{id}` | GUID en la ruta y JSON con `nombre` y `email`. | HTTP 200 con el usuario actualizado; HTTP 404 si el repositorio no informa filas afectadas. |
+| DELETE | `/usuario/{id}` | GUID en la ruta, sin cuerpo. | HTTP 204 sin cuerpo al marcar el usuario como borrado; HTTP 404 si el repositorio no informa filas afectadas. |
+
+Las rutas de PUT y DELETE usan la restricción `{id:guid}`: el identificador debe tener formato GUID. Una ruta con un identificador que no cumple ese formato no coincide con estos endpoints y devuelve HTTP 404.
 
 ### GET /usuario
 
-Consulta los usuarios almacenados en MySQL y devuelve una lista en JSON.
+Consulta los usuarios almacenados en MySQL cuyo `DeletedAt` es `NULL` y devuelve una lista en JSON, ordenada por `Nombre` e `Id`.
 
 ```text
 GET /usuario
     → UsuarioEndpoints
     → UsuarioServicio.LeerUsuarios()
     → UsuarioRepositorio.GetUsuarios()
-    → SELECT en MySQL y lista de entidades Usuario
+    → SELECT en MySQL con WHERE DeletedAt IS NULL y lista de entidades Usuario
     → Respuesta HTTP 200 con JSON
 ```
 
@@ -292,8 +352,97 @@ Location: /usuario/6a1d9c42-3e75-4b80-92f6-7c0e5a18d934
 
 `Results.Created(...)` establece el estado **201 Created**, incluye el objeto de respuesta en el cuerpo y coloca la ruta indicada en el encabezado `Location`. El código actual devuelve `/usuario/{id}` como ubicación del recurso, pero todavía no implementa un endpoint GET para consultar un usuario por su identificador.
 
+### PUT /usuario/{id}
+
+Actualiza el nombre y el email del usuario identificado por el GUID de la ruta. Enviar ambos campos en el cuerpo con `Content-Type: application/json`; el identificador se conserva y no se crea un usuario si no existe.
+
+```http
+PUT /usuario/6a1d9c42-3e75-4b80-92f6-7c0e5a18d934
+Content-Type: application/json
+
+{
+  "nombre": "Ana Pérez",
+  "email": "ana.perez@mail.com"
+}
+```
+
+```text
+PUT /usuario/{id} con JSON
+    → UsuarioServicio.ActualizarUsuario(id, usuarioDto)
+    → UsuarioRepositorio.UpdateUsuario(usuario)
+    → UPDATE Usuarios SET Nombre = @Nombre, Email = @Email WHERE Id = @Id
+    → HTTP 200 con JSON si hay filas afectadas; HTTP 404 sin cuerpo si no las hay
+```
+
+Ejemplo de respuesta exitosa:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "id": "6a1d9c42-3e75-4b80-92f6-7c0e5a18d934",
+  "nombre": "Ana Pérez",
+  "email": "ana.perez@mail.com"
+}
+```
+
+Si el identificador no existe, el repositorio devuelve `false`, el servicio devuelve `null` y el endpoint responde **404 Not Found**.
+
+### DELETE /usuario/{id}
+
+Marca el usuario como borrado mediante Soft Delete. La solicitud no lleva cuerpo:
+
+```http
+DELETE /usuario/6a1d9c42-3e75-4b80-92f6-7c0e5a18d934
+```
+
+```text
+DELETE /usuario/{id}
+    → UsuarioServicio.BorrarUsuario(id)
+    → UsuarioRepositorio.DeleteUsuario(id)
+    → UPDATE Usuarios SET DeletedAt = @deletedAt WHERE Id = @Id
+    → HTTP 204 sin cuerpo si hay filas afectadas; HTTP 404 sin cuerpo si no las hay
+```
+
+Ejemplo de respuesta exitosa:
+
+```http
+HTTP/1.1 204 No Content
+```
+
+Si el identificador no existe, el repositorio devuelve `false` y el endpoint responde **404 Not Found**. Después de un borrado exitoso, el usuario deja de aparecer en `GET /usuario`.
+
+### Soft Delete: borrado lógico
+
+El borrado físico elimina la fila con `DELETE FROM Usuarios`. Esta implementación conserva la fila y usa la columna nullable `DeletedAt` para indicar su estado:
+
+| Valor de `DeletedAt` | Estado | ¿Aparece en GET? |
+| --- | --- | --- |
+| `NULL` | Usuario activo. | Sí. |
+| Fecha y hora | Usuario borrado lógicamente. | No. |
+
+Al crear un usuario no se especifica `DeletedAt`, por lo que queda en `NULL`. Al borrarlo, el repositorio guarda `DateTime.Now` (la fecha y hora local del servidor de la API). La marca se almacena en MySQL y se conserva al reiniciar la aplicación. `DeletedAt` no se expone en los DTOs ni en las respuestas JSON.
+
+Para comprobar el estado desde un cliente de MySQL:
+
+```sql
+SELECT Id, Nombre, Email, DeletedAt
+FROM Usuarios
+WHERE Id = '6a1d9c42-3e75-4b80-92f6-7c0e5a18d934';
+```
+
+En el código actual, solamente GET filtra por `DeletedAt IS NULL`. PUT y DELETE buscan por `Id`, incluso si la fila ya fue borrada lógicamente: PUT puede modificar su nombre y email sin reactivarla, y otro DELETE vuelve a asignar la fecha de borrado. Por eso un segundo DELETE no devuelve necesariamente 404. No hay un endpoint de restauración ni de borrado físico.
+
 ### Probar desde Swagger
 
 En el entorno `Development`, se habilitan el documento OpenAPI en `/openapi/v1.json` y la interfaz Swagger UI en `/swagger` para explorar y probar los endpoints.
 
-Para probar la creación, abrir `POST /usuario`, completar el cuerpo con `nombre` y `email` y ejecutar la solicitud. La respuesta debe mostrar el estado 201 y el identificador en la propiedad `id`. Luego ejecutar `GET /usuario` y comprobar que el usuario aparece con el mismo identificador. Al reiniciar la API y repetir el GET, el registro debe seguir disponible en MySQL.
+Para probar el ciclo completo:
+
+1. Ejecutar `POST /usuario` con `nombre` y `email`. Comprobar el estado 201 y copiar el `id` de la respuesta.
+2. Ejecutar `GET /usuario` y comprobar que el usuario aparece con ese identificador.
+3. Ejecutar `PUT /usuario/{id}` con ese GUID y nuevos valores para `nombre` y `email`. Comprobar el estado 200 y verificar los cambios con GET. Al reiniciar la API, los cambios deben seguir disponibles.
+4. Ejecutar `DELETE /usuario/{id}` con el mismo GUID. Comprobar el estado 204 y que no haya cuerpo de respuesta.
+5. Repetir GET y comprobar que el usuario ya no aparece, incluso después de reiniciar la API. Consultar la tabla en MySQL para verificar que la fila continúa presente con `DeletedAt` informado.
+6. Probar PUT y DELETE con un GUID que no exista en la tabla y comprobar que responden 404.
